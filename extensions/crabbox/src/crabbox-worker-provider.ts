@@ -147,6 +147,7 @@ export function createCrabboxWorkerProvider(
         binary: candidate,
         runCommand,
         signal: providerAbort.signal,
+        warn: explicit ? warn : undefined,
       })
         .then(({ binary }) => {
           providerAbort.signal.throwIfAborted();

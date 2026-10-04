@@ -76,6 +76,20 @@ describe("Crabbox provider binary resolution", () => {
     ]);
   });
 
+  it("reports managed fallback only for a configured binary", async () => {
+    vi.mocked(ensureManagedCrabboxBinary).mockImplementation(async (params) => {
+      params?.warn?.(`fallback from ${params.binary}`);
+      return { binary: "/state/tools/crabbox", version: "999.0.0" };
+    });
+    const warn = vi.fn();
+    const runCommand = vi.fn<CrabboxCommandRunner>(async () => commandResult({ stdout: "[]" }));
+    const provider = createProvider({ runCommand, warn });
+    await provider.listMachineOptions!(PROFILE);
+    expect(warn).not.toHaveBeenCalled();
+    await provider.listMachineOptions!({ ...PROFILE, binary: "/opt/operator/crabbox" });
+    expect(warn).toHaveBeenCalledExactlyOnceWith("fallback from /opt/operator/crabbox");
+  });
+
   it("evicts a shared rejection so later discovery can retry", async () => {
     const failure = new Error("version probe unavailable");
     vi.mocked(ensureManagedCrabboxBinary).mockRejectedValueOnce(failure);
