@@ -21,6 +21,23 @@ type CrabboxVersionProbe =
   | { status: "outdated"; version: string }
   | { status: "indeterminate"; reason: string };
 
+function warnOnConfiguredBinaryFallback(params: {
+  binary: string;
+  preferred: Exclude<CrabboxVersionProbe, { status: "supported" }>;
+  actual: string;
+  warn?: (message: string) => void;
+}) {
+  const { preferred } = params;
+  // Probe reasons are already redacted and bounded; their diagnosis is at the end.
+  const detail =
+    preferred.status === "outdated"
+      ? `version=${preferred.version}`
+      : `reason=${JSON.stringify(preferred.reason)}`;
+  params.warn?.(
+    `Configured Crabbox binary "${params.binary}" rejected (status=${preferred.status}, ${detail}, minimum=${CRABBOX_MIN_VERSION}); using managed binary "${params.actual}"`,
+  );
+}
+
 export async function probeCrabboxVersion(
   binary: string,
   runCommand: CrabboxCommandRunner = runCommandWithTimeout,
@@ -363,6 +380,7 @@ export async function ensureManagedCrabboxBinary(
     runCommand?: CrabboxCommandRunner;
     env?: NodeJS.ProcessEnv;
     signal?: AbortSignal;
+    warn?: (message: string) => void;
   } = {},
 ): Promise<CrabboxBinary> {
   const { signal } = params;
@@ -381,6 +399,12 @@ export async function ensureManagedCrabboxBinary(
   }
   const cached = await findManagedCrabboxBinary({ env: params.env, runCommand, signal });
   if (cached) {
+    warnOnConfiguredBinaryFallback({
+      binary: candidate,
+      preferred,
+      actual: cached.binary,
+      warn: params.warn,
+    });
     return cached;
   }
   const { toErrorObject } = await import("openclaw/plugin-sdk/error-runtime");
@@ -437,6 +461,12 @@ export async function ensureManagedCrabboxBinary(
   try {
     const resolved = await Promise.race([shared.promise, abandoned]);
     signal?.throwIfAborted();
+    warnOnConfiguredBinaryFallback({
+      binary: candidate,
+      preferred,
+      actual: resolved.binary,
+      warn: params.warn,
+    });
     return resolved;
   } catch (error) {
     signal?.throwIfAborted();

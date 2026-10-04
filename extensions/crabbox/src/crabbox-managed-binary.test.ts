@@ -169,6 +169,48 @@ describe("managed Crabbox", () => {
     await expect(fs.access(test.env.OPENCLAW_STATE_DIR)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("warns once when an outdated configured binary is replaced by the managed binary", async () => {
+    const test = await fixture("0.68.0");
+    const warn = vi.fn();
+    await expect(ensureManagedCrabboxBinary({ ...test.options, warn })).resolves.toEqual(
+      test.installed,
+    );
+    expect(warn).toHaveBeenCalledExactlyOnceWith(
+      `Configured Crabbox binary "${test.candidate}" rejected (status=outdated, version=0.68.0, minimum=${CRABBOX_MIN_VERSION}); using managed binary "${test.binary}"`,
+    );
+  });
+
+  it("warns with the full probe reason when an unusable configured binary falls back to the cache", async () => {
+    const test = await fixture();
+    await ensureManagedCrabboxBinary(test.options);
+    const warn = vi.fn();
+    const failing: CrabboxCommandRunner = async (argv, options) => {
+      if (argv[0] === test.candidate) {
+        throw new Error(`spawn ${test.candidate} EACCES`);
+      }
+      return runCommand(argv, options);
+    };
+    await expect(
+      ensureManagedCrabboxBinary({ ...test.options, runCommand: failing, warn }),
+    ).resolves.toEqual(test.installed);
+    expect(test.fetch).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenCalledExactlyOnceWith(
+      `Configured Crabbox binary "${test.candidate}" rejected (status=indeterminate, reason=${JSON.stringify(
+        `Crabbox version command execution failed: spawn ${test.candidate} EACCES`,
+      )}, minimum=${CRABBOX_MIN_VERSION}); using managed binary "${test.binary}"`,
+    );
+  });
+
+  it("does not warn when the configured binary is supported", async () => {
+    const test = await fixture("999.0.0");
+    const warn = vi.fn();
+    await expect(ensureManagedCrabboxBinary({ ...test.options, warn })).resolves.toEqual({
+      binary: test.candidate,
+      version: "999.0.0",
+    });
+    expect(warn).not.toHaveBeenCalled();
+  });
+
   it("upgrades an old candidate, preserves its distribution, and reuses it offline", async () => {
     const test = await fixture("0.68.0");
     const params = test.options;
